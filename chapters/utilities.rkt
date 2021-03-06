@@ -368,13 +368,44 @@
                            (for ([seg body])
                              (write-string "(" out)
                              (write (car seg) out)
-                             (write-string ": " out)
+                             (write-string (if (Return? (cdr seg))
+                                               ": "
+                                               (string-append ":\n" (make-string (indent-width) #\space)))
+                                           out)
                              (write-ast (cdr seg) out)
-                             (write-string ")" out))]))
+                             (write-string ")\n" out))]))
                       [-> AST Output-Port (U Boolean 0 1) Void]))
 
 (struct Tail AST () #:constructor-name make-tail #:transparent) ; abstract
 (struct Return Tail ([exp : Exp]) #:transparent)
-(struct Seq Tail ([stmt : Assign] [tail : Tail]) #:transparent)
+(add-AST-format! 'Return
+                 (ann (λ (ast out mode)
+                        (match ast
+                          [(Return exp)
+                           (void (write-string "return " out)
+                                 (write-ast exp out)
+                                 (write-string ";" out))]))
+                      [-> AST Output-Port (U Boolean 0 1) Void]))
 
-(struct Assign ([var : Var] [exp : Exp]) #:transparent)
+(struct Seq Tail ([stmt : Assign] [tail : Tail]) #:transparent)
+(add-AST-format! 'Seq
+                 (ann (λ (ast out mode)
+                        (match ast
+                          [(Seq stmt tail)
+                           (write-ast stmt out)
+                           (write-ast tail out)]))
+                      [-> AST Output-Port (U Boolean 0 1) Void]))
+
+
+(struct Assign AST ([var : Var] [exp : Exp]) #:transparent)
+(add-AST-format! 'Assign
+                 (ann (λ (ast out mode)
+                        (match ast
+                          [(Assign var exp)
+                           (let-values ([(line col pos) (port-next-location out)])
+                             (void (write-ast var out)
+                                   (write-string " = " out)
+                                   (write-ast exp out)
+                                   (write-string ";" out)
+                                   (newline-and-indent out col)))]))
+                      [-> AST Output-Port (U Boolean 0 1) Void]))

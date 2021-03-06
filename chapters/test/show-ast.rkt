@@ -19,3 +19,8 @@
                                               (list (Instr 'addq (list (Imm 16) (Reg 'rsp)))
                                                     (Popq (Reg 'rbp))
                                                     (Retq)))])))
+
+(show-ast (CProgram '()
+                    `([_main . ,(Return (Int 143))]
+                      [_last . ,(Seq (Assign (Var 'v) (Int 12))
+                                     (Return (Var 'v)))])))
