@@ -1,2 +1,0 @@
-# EOC
-Some codes and notes for Essential of Compilation.
