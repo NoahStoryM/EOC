@@ -50,6 +50,8 @@
          )
 
 
+;;; Env
+
 ;; (define-type (Env A) (Listof (Pair Symbol A)))
 ;; (define-predicate env? Env)
 
@@ -95,8 +97,15 @@
 (define in-env (λ (env) env))
 
 
-;; write to port
-(: make-recur [-> Output-Port (U Boolean 0 1)
+;;; Dict
+(define-type Dict (Listof (Pair Symbol Any)))
+(define-predicate dict? Dict)
+
+
+;; write to out
+(define-type Mode (U Boolean 0 1))
+
+(: make-recur [-> Output-Port Mode
                   (U [-> Any Output-Port Void]
                      [->* (Any) (Output-Port) Void])])
 (define make-recur
@@ -107,7 +116,7 @@
       [else (ann (lambda (arg out) (print arg out mode))
                  [-> Any Output-Port Void])])))
 
-(: make-recurln [-> Output-Port (U Boolean 0 1)
+(: make-recurln [-> Output-Port Mode
                     (U [-> Any Output-Port Void]
                        [->* (Any) (Output-Port) Void])])
 (define make-recurln
@@ -130,22 +139,57 @@
        (write-string lead out)))))
 
 
+(define-type Info (Listof (Pair Symbol Any)))
+
+(: print-info [-> Info Output-Port Mode Void])
+(define print-info
+  (λ (info out mode)
+    (define recur (make-recur out mode))
+
+    (for ([i info])
+      (define label (car i))
+      (define data  (cdr i))
+      (match label
+        ['locals-types
+         (write-string "locals-types:" out)
+         (newline out)
+         (cond [(dict? data)
+                (write-string "    " out)
+                (for ([datum data])
+                  (define var  (car datum))
+                  (define type (cdr datum))
+                  (write-string (symbol->string var) out)
+                  (write-string " : " out)
+                  (recur type out)
+                  (write-string ", " out))
+                (newline out)]
+               [else
+                (recur data out)
+                (newline out)])]
+        [else
+         (write-string (symbol->string label) out)
+         (write-string ":" out)
+         (newline out)
+         (recur data out)
+         (newline out)]))))
+
+
 ;; AST
 (struct AST () #:constructor-name make-ast #:transparent) ; #:abstract
 
 (: ast-name [-> (U Procedure AST) Symbol])
 (define ast-name (λ (ast) (assert (object-name ast) symbol?)))
 
-(: write-ast [->* (AST) (Output-Port (U Boolean 0 1)) Void])
+(: write-ast [->* (AST) (Output-Port Mode) Void])
 (define write-ast (λ (ast [out (current-output-port)] [mode #f]) ((hash-ref AST-format-table (ast-name ast)) ast out mode)))
 
-(: write-astln [->* (AST) (Output-Port (U Boolean 0 1)) Void])
+(: write-astln [->* (AST) (Output-Port Mode) Void])
 (define write-astln (λ (ast [out (current-output-port)] [mode #f]) (write-ast ast out mode) (newline out)))
 
-(: AST-format-table (Mutable-HashTable Symbol [-> AST Output-Port (U Boolean 0 1) Void]))
+(: AST-format-table (Mutable-HashTable Symbol [-> AST Output-Port Mode Void]))
 (define AST-format-table (make-hasheq))
 
-(: add-AST-format! [-> Symbol [-> AST Output-Port (U Boolean 0 1) Void] Void])
+(: add-AST-format! [-> Symbol [-> AST Output-Port Mode Void] Void])
 (define add-AST-format! (λ (name op) (hash-set! AST-format-table name op)))
 
 
@@ -172,12 +216,12 @@
 (add-AST-format! 'Imm
                  (ann (λ (ast out mode)
                         (match ast [(Imm n) (write-string "$" out) (write n out)]))
-                      [-> AST Output-Port (U Boolean 0 1) Void]))
+                      [-> AST Output-Port Mode Void]))
 
 (struct Reg X86Arg ([name : X86Reg]) #:transparent)
 (add-AST-format! 'Reg
                  (ann (λ (ast out mode) (match ast [(Reg r) (write-string "%" out) (write r out)]))
-                      [-> AST Output-Port (U Boolean 0 1) Void]))
+                      [-> AST Output-Port Mode Void]))
 
 (struct Deref X86Arg ([reg : X86Reg] [offset : Fixnum]) #:transparent)
 (add-AST-format! 'Deref
@@ -190,7 +234,7 @@
                             (write-string "%" out)
                             (write reg out)
                             (write-string ")" out))]))
-                      [-> AST Output-Port (U Boolean 0 1) Void]))
+                      [-> AST Output-Port Mode Void]))
 
 
 (struct X86Instr AST () #:constructor-name make-x86instr #:transparent) ; #:abstract
@@ -207,19 +251,19 @@
                                (write-string " " out)
                                (write-ast arg out))
                              (newline-and-indent out col))]))
-                      [-> AST Output-Port (U Boolean 0 1) Void]))
+                      [-> AST Output-Port Mode Void]))
 
-(struct Callq X86Instr ([target : Symbol]) #:transparent)
+(struct Callq X86Instr ([target : Symbol] [arity : Fixnum]) #:transparent)
 (add-AST-format! 'Callq
                  (ann (λ (ast out mode)
                         (match ast
-                          [(Callq target)
+                          [(Callq target arity)
                            (let-values ([(line col pos) (port-next-location out)])
                              (void (write-string "callq" out)
                                    (write-string " " out)
                                    (write target out)
                                    (newline-and-indent out col)))]))
-                      [-> AST Output-Port (U Boolean 0 1) Void]))
+                      [-> AST Output-Port Mode Void]))
 
 (struct Retq X86Instr () #:transparent)
 (add-AST-format! 'Retq
@@ -229,7 +273,7 @@
                            (let-values ([(line col pos) (port-next-location out)])
                              (void (write-string "retq" out)
                                    (newline-and-indent out col)))]))
-                      [-> AST Output-Port (U Boolean 0 1) Void]))
+                      [-> AST Output-Port Mode Void]))
 
 (struct Pushq X86Instr ([arg : X86Arg]) #:transparent)
 (add-AST-format! 'Pushq
@@ -241,7 +285,7 @@
                                    (write-string " " out)
                                    (write-ast arg out)
                                    (newline-and-indent out col)))]))
-                      [-> AST Output-Port (U Boolean 0 1) Void]))
+                      [-> AST Output-Port Mode Void]))
 
 (struct Popq X86Instr ([arg : X86Arg]) #:transparent)
 (add-AST-format! 'Popq
@@ -253,7 +297,7 @@
                                    (write-string " " out)
                                    (write-ast arg out)
                                    (newline-and-indent out col)))]))
-                      [-> AST Output-Port (U Boolean 0 1) Void]))
+                      [-> AST Output-Port Mode Void]))
 
 (struct Jmp X86Instr ([target : Symbol]) #:transparent)
 (add-AST-format! 'Jmp
@@ -265,52 +309,58 @@
                                    (write-string " " out)
                                    (write target out)
                                    (newline-and-indent out col)))]))
-                      [-> AST Output-Port (U Boolean 0 1) Void]))
+                      [-> AST Output-Port Mode Void]))
 
 
-(struct Block AST ([info : (Listof Any)] [instr* : (Listof X86Instr)]))
+(struct Block AST ([info : Info] [instr* : (Listof X86Instr)]))
 (add-AST-format! 'Block
                  (ann (λ (ast out mode)
                         (match ast
                           [(Block info instr*)
+                           (print-info info out mode)
                            (write-string (make-string (indent-width) #\space) out)
                            (for ([instr instr*])
                              (write-ast instr out))
                            (newline out)]))
-                      [-> AST Output-Port (U Boolean 0 1) Void]))
+                      [-> AST Output-Port Mode Void]))
 
 
 (struct X86Program AST
-  ([info : (Listof Any)]
+  ([info : Info]
    [body : (Pair (Pair (U '_main 'main '_start 'start) Block) (Listof (Pair Symbol Block)))])
   #:transparent)
 (add-AST-format! 'X86Program
                  (ann (λ (ast out mode)
                         (match ast
                           [(X86Program info body)
+                           (write-string "x86 program:" out)
+                           (newline out)
+                           (print-info info out mode)
                            (write-string ".global " out)
                            (writeln (caar body) out)
                            (for ([seg body])
                              (write (car seg) out)
                              (write-string ":\n" out)
                              (write-ast (cdr seg) out))]))
-                      [-> AST Output-Port (U Boolean 0 1) Void]))
+                      [-> AST Output-Port Mode Void]))
 
 
 ;;; Racket Language:
 (struct Exp AST () #:constructor-name make-exp #:transparent) ; #:abstract
 
-(struct Program AST ([info : (Listof Any)] [body : Exp]) #:transparent)
+(struct Program AST ([info : Info] [body : Exp]) #:transparent)
 (add-AST-format! 'Program
                  (ann (λ (ast out mode)
                         (match ast
                           [(Program info body)
-                           (writeln "program:" out)
+                           (write-string "Racket program:" out)
+                           (newline out)
+                           (print-info info out mode)
                            (if (list? body)
                                (for ([def body])
                                  (write-ast def out))
                                (write-ast body out))]))
-                      [-> AST Output-Port (U Boolean 0 1) Void]))
+                      [-> AST Output-Port Mode Void]))
 
 
 (struct Atm Exp () #:constructor-name make-atm #:transparent) ; #:abstract
@@ -318,12 +368,12 @@
 (struct Int Atm ([value : Fixnum]))
 (add-AST-format! 'Int
                  (ann (λ (ast out mode) (match ast [(Int n) (write n out)]))
-                      [-> AST Output-Port (U Boolean 0 1) Void]))
+                      [-> AST Output-Port Mode Void]))
 
 (struct Var Atm ([name : Symbol]))
 (add-AST-format! 'Var
                  (ann (λ (ast out mode) (match ast [(Var v) (write v out)]))
-                      [-> AST Output-Port (U Boolean 0 1) Void]))
+                      [-> AST Output-Port Mode Void]))
 
 (struct Prim Exp ([op : Symbol] [arg* : (Listof Exp)]))
 (add-AST-format! 'Prim
@@ -336,7 +386,7 @@
                                    (write-string " " out)
                                    (write-ast arg out))
                                  (write-string ")" out))]))
-                      [-> AST Output-Port (U Boolean 0 1) Void]))
+                      [-> AST Output-Port Mode Void]))
 
 (struct Let Exp ([var : Symbol] [rhs : Exp] [body : Exp]))
 (add-AST-format! 'Let
@@ -354,27 +404,31 @@
                                    (write-ast body out)
                                    (write-string ")" out)
                                    (newline-and-indent out col)))]))
-                      [-> AST Output-Port (U Boolean 0 1) Void]))
+                      [-> AST Output-Port Mode Void]))
 
 ;; C Language:
 (struct CProgram AST
-  ([info : (Listof Any)]
+  ([info : Info]
    [body : (Pair (Pair (U '_main 'main '_start 'start) Tail) (Listof (Pair Symbol Tail)))])
   #:transparent)
 (add-AST-format! 'CProgram
                  (ann (λ (ast out mode)
                         (match ast
                           [(CProgram info body)
+                           (write-string "C program:" out)
+                           (newline out)
+                           (print-info info out mode)
+
                            (for ([seg body])
-                             (write-string "(" out)
-                             (write (car seg) out)
-                             (write-string (if (Return? (cdr seg))
-                                               ": "
-                                               (string-append ":\n" (make-string (indent-width) #\space)))
-                                           out)
-                             (write-ast (cdr seg) out)
-                             (write-string ")\n" out))]))
-                      [-> AST Output-Port (U Boolean 0 1) Void]))
+                             (define label (car seg))
+                             (define tail  (cdr seg))
+
+                             (write-string (symbol->string label) out)
+                             (write-string ":" out)
+                             (newline out)
+                             (write-string (make-string (indent-width) #\space) out)
+                             (write-astln tail out))]))
+                      [-> AST Output-Port Mode Void]))
 
 (struct Tail AST () #:constructor-name make-tail #:transparent) ; abstract
 (struct Return Tail ([exp : Exp]) #:transparent)
@@ -385,7 +439,7 @@
                            (void (write-string "return " out)
                                  (write-ast exp out)
                                  (write-string ";" out))]))
-                      [-> AST Output-Port (U Boolean 0 1) Void]))
+                      [-> AST Output-Port Mode Void]))
 
 (struct Seq Tail ([stmt : Assign] [tail : Tail]) #:transparent)
 (add-AST-format! 'Seq
@@ -394,7 +448,7 @@
                           [(Seq stmt tail)
                            (write-ast stmt out)
                            (write-ast tail out)]))
-                      [-> AST Output-Port (U Boolean 0 1) Void]))
+                      [-> AST Output-Port Mode Void]))
 
 
 (struct Assign AST ([var : Var] [exp : Exp]) #:transparent)
@@ -408,4 +462,4 @@
                                    (write-ast exp out)
                                    (write-string ";" out)
                                    (newline-and-indent out col)))]))
-                      [-> AST Output-Port (U Boolean 0 1) Void]))
+                      [-> AST Output-Port Mode Void]))
