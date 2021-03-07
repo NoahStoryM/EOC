@@ -1,6 +1,15 @@
 #lang typed/racket
 
-(require "../utilities.rkt" "../1/interp-Rint.rkt")
+(require "../utilities.rkt"
+         "../1/interp-Rint.rkt")
+
+(show-ast (assert (call-with-values
+                   (λ ()
+                     (eval '(CProgram '()
+                                      `([_main . ,(Return (Int 123))]))
+                           eval-ns))
+                   (λ args (car args)))
+                  AST?))
 
 
 (show-ast (X86Program '()

@@ -6,6 +6,8 @@
 (define-type FinalAnswer Fixnum)
 
 (provide FinalAnswer
+         ;; eval
+         ns-anchor eval-ns
 
          ;; env
          Env env? empty-env empty-env? env-ref env-remove env-set in-env
@@ -48,6 +50,10 @@
          (struct-out Assign)
 
          )
+
+;;; eval
+(define-namespace-anchor ns-anchor)
+(define eval-ns (namespace-anchor->namespace ns-anchor))
 
 
 ;;; Env
@@ -154,7 +160,7 @@
          (write-string "locals-types:" out)
          (newline out)
          (cond [(dict? data)
-                (write-string "    " out)
+                (write-string (make-string (indent-width) #\space) out)
                 (for ([datum data])
                   (define var  (car datum))
                   (define type (cdr datum))
@@ -438,7 +444,7 @@
                           [(Return exp)
                            (void (write-string "return " out)
                                  (write-ast exp out)
-                                 (write-string ";" out))]))
+                                 (write-string ";\n" out))]))
                       [-> AST Output-Port Mode Void]))
 
 (struct Seq Tail ([stmt : Assign] [tail : Tail]) #:transparent)
