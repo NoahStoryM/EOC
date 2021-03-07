@@ -14,7 +14,6 @@
 
 (define _Int?     (λ (arg) (eq? arg 'Int)))
 (define _Prim?    (λ (arg) (eq? arg 'Prim)))
-(define _Program? (λ (arg) (eq? arg 'Program)))
 
 (define _read? (λ (arg) (equal? arg ''read)))
 (define _-?    (λ (arg) (equal? arg ''-)))
