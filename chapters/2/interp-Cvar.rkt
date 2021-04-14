@@ -2,7 +2,8 @@
 
 (require racket/fixnum)
 (require "../utilities.rkt" "interp-Rvar.rkt")
-(provide interp-Cvar interp-Cvar-mixin)
+
+(provide interp-Cvar-mixin interp-Cvar% interp-Cvar)
 
 
 (define-type FinalAnswer Fixnum)
@@ -45,6 +46,14 @@
            ((interp-tail '()) t1)])))))
 
 
+(: interp-Cvar% (Class [interp-stmt [-> (Env Fixnum) [-> Assign (Env Fixnum)]]]
+                       [interp-tail [-> (Env Fixnum) [-> Tail Fixnum]]]
+
+                       [interp-exp [-> (Env Fixnum) [-> Exp Fixnum]]]
+                       [interp-program [-> Program FinalAnswer]]))
+(define interp-Cvar% (interp-Cvar-mixin interp-Rvar%))
+
+
 (: interp-Cvar [-> Program FinalAnswer])
 (define (interp-Cvar p)
-  (send (new (interp-Cvar-mixin interp-Rvar%)) interp-program p))
+  (send (new interp-Cvar%) interp-program p))
