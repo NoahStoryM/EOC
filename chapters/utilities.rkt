@@ -1,22 +1,39 @@
 #lang typed/racket
 
-;; (require racket/struct)
-;; (require graph)
+(require typed/rackunit typed/rackunit/text-ui typed/rackunit/gui)
+(require (for-syntax typed/racket))
+
 
 (define-type FinalAnswer Fixnum)
 
-(provide FinalAnswer
+(provide FinalAnswer Info
+
          ;; eval
          ns-anchor eval-ns
 
+         ;; type
+         Type type? Op-Type op-type?
+
+         ;; debug
+         debug-level at-debug-level? debug
+
+         ;; ;; tests
+         ;; interp-tests
+
+
          ;; env
-         Env env? empty-env empty-env? env-ref env-remove env-set in-env
+         Env env? empty-env empty-env? env-ref
+         env-remove env-set env-set*
+         env-remove! env-set! env-set*!
+         in-env env-has-key?
 
 
          ;; AST
          ast-name write-ast write-astln show-ast show-astln
          (except-out (struct-out AST) make-ast)
 
+
+         ;; pseudo x86
 
          ;; x86
          X86Reg X86Reg?
@@ -56,6 +73,86 @@
 (define eval-ns (namespace-anchor->namespace ns-anchor))
 
 
+(define-type Op-Type (Pair (Listof Type) Type))
+(define-type Type (U Op-Type Symbol))
+
+(define-predicate op-type? Op-Type)
+(define-predicate type? Type)
+
+
+;; debug state is a nonnegative integer.
+;; The easiest way to increment it is passing the -d option
+;; to run-tests.rkt
+;; 0 none
+;; 1 trace passes in run-test
+;; 2 debug macros
+;; 3 verbose debugging
+;; 4 (copious) absolutely everything
+;; The higher the setting the more information is reported.
+;; If you want the same functionality as previous incarnation
+;; of utilities then uncomment the line after this definition
+;; and change the number there.
+(: debug-level (Parameter Natural))
+(define debug-level (make-parameter 0))
+;; (debug-level 2)
+
+;; Check to see if debug state is at least some level
+(: at-debug-level? [-> Natural Boolean])
+(define (at-debug-level? n) (>= (debug-level) n))
+
+(: test-verbosity [-> (U 'verbose 'normal)])
+(define (test-verbosity)
+  (cond [(>= (debug-level) 1) 'verbose]
+        [else 'normal]))
+
+;; print-label-and-values prints out the label followed the values
+;; and the expression that generated those values
+;; The label is formated with the file and line number of the
+;; debubing expression for easier location.
+(define-syntax (print-label-and-values stx)
+  (syntax-case stx ()
+    [(_ label value ...)
+     (let* ([src (syntax-source stx)]
+            [src (if (path? src)
+                     (find-relative-path (current-directory) src)
+                     src)]
+            [lno (syntax-line stx)])
+       #`(begin
+           (printf "~a @ ~a:~a\n" label #,src #,lno)
+           (begin
+             (printf "~a:\n" 'value)
+             (pretty-print value)
+             #;(if (string? value)
+                   (display value)
+                   (pretty-display value))
+             (newline))
+           ...
+           (newline)))]))
+
+;; This series of macros are used for debuging purposes
+;; and print out
+(define-syntax-rule (define-debug-level name level)
+  (...
+   (define-syntax (name stx)
+     (syntax-case stx ()
+       [(_ label value ...)
+        #`(when (at-debug-level? level)
+            #,(syntax/loc stx
+                (print-label-and-values label value ...)))]))))
+
+;; Print out debugging info in a somewhat organized manner
+;; (debug "foo" (car '(1 2)) 'foo) should print
+;; foo @ utilities.rkt:77
+;; (car '(1 2)):
+;; 1
+;; 'foo:
+;; foo
+(define-debug-level trace 1)
+(define-debug-level debug 2)
+(define-debug-level verbose 3)
+(define-debug-level copious 4)
+
+
 ;;; Env
 
 ;; (define-type (Env A) (Listof (Pair Symbol A)))
@@ -81,11 +178,12 @@
 ;;          env)))
 
 
-(define-type (Env A) (Immutable-HashTable Symbol A))
-(define-predicate env? (Immutable-HashTable Symbol Any))
+(define-type (Env A) (Mutable-HashTable Symbol A))
+;; (define-predicate env? (Mutable-HashTable Symbol Any))
+(define-predicate env? HashTableTop)
 
 (: empty-env (All (A) [-> (Env A)]))
-(define empty-env (λ () (make-immutable-hasheq)))
+(define empty-env (λ () (make-hasheq)))
 
 (: empty-env? (All (A) [-> (Env A) Boolean]))
 (define empty-env? (λ (env) (hash-empty? env)))
@@ -94,13 +192,43 @@
 (define env-ref (λ (env var) (hash-ref env var)))
 
 (: env-remove (All (A) [-> (Env A) Symbol (Env A)]))
-(define env-remove (λ (env var) (hash-remove env var)))
+(define env-remove
+  (λ (env var)
+    (: new-env (Env A))
+    (define new-env (hash-copy env))
+    (hash-remove! new-env var)
+    new-env))
+
+(: env-remove! (All (A) [-> (Env A) Symbol Void]))
+(define env-remove! (λ (env var) (hash-remove! env var)))
 
 (: env-set (All (A) [-> (Env A) Symbol A (Env A)]))
-(define env-set (λ (env var val) (hash-set env var val)))
+(define env-set
+  (λ (env var val)
+    (: new-env (Env A))
+    (define new-env (hash-copy env))
+    (hash-set! new-env var val)
+    new-env))
+
+(: env-set! (All (A) [-> (Env A) Symbol A Void]))
+(define env-set! (λ (env var val) (hash-set! env var val)))
+
+(: env-set* (All (A) [->* ((Env A)) #:rest-star (Symbol A) (Env A)]))
+(define env-set*
+  (λ (env . k-v)
+    (: new-env (Env A))
+    (define new-env (hash-copy env))
+    (apply hash-set*! new-env k-v)
+    new-env))
+
+(: env-set*! (All (A) [->* ((Env A)) #:rest-star (Symbol A) Void]))
+(define env-set*! (λ (env . k-v) (apply hash-set*! env k-v)))
 
 (: in-env (All (A) [-> (Env A) (Env A)]))
 (define in-env (λ (env) env))
+
+(: env-has-key? (All (A) [-> (Env A) Symbol Boolean]))
+(define env-has-key? (λ (env key) (hash-has-key? env key)))
 
 
 ;;; Dict
@@ -415,7 +543,8 @@
 ;; C Language:
 (struct CProgram AST
   ([info : Info]
-   [body : (Pair (Pair (U '_main 'main '_start 'start) Tail) (Listof (Pair Symbol Tail)))])
+   [body : (Pair (Pair (U '_main 'main '_start 'start) Tail)
+                 (Listof (Pair Symbol Tail)))])
   #:transparent)
 (add-AST-format! 'CProgram
                  (ann (λ (ast out mode)
@@ -469,3 +598,172 @@
                                    (write-string ";" out)
                                    (newline-and-indent out col)))]))
                       [-> AST Output-Port Mode Void]))
+
+
+;; ;; The check-passes function takes a compiler name (a string), a
+;; ;; typechecker (see below), a description of the passes (see below),
+;; ;; and an initial interpreter to apply to the initial expression, and
+;; ;; returns a function that takes a test name and runs the passes and
+;; ;; the appropriate interpreters to test the correctness of all the
+;; ;; passes. This function assumes there is a "tests" subdirectory and a
+;; ;; file in that directory whose name is the test name followed by
+;; ;; ".rkt". Also, there should be a matching file with the ending ".in"
+;; ;; that provides the input for the Scheme program. If any program
+;; ;; should not pass typechecking, then there is a file with the name
+;; ;; number (whose contents are ignored) that ends in ".tyerr".
+;; ;;
+;; ;; The description of the passes is a list with one entry per pass.
+;; ;; An entry is a list with three things: a string giving the name of
+;; ;; the pass, the function that implements the pass (a translator from
+;; ;; AST to AST), and a function that implements the interpreter (a
+;; ;; function from AST to result value).
+;; ;;
+;; ;; The typechecker is a function of exactly one argument that EITHER
+;; ;; raises an error using the (error) function when it encounters a
+;; ;; type error, or returns #f when it encounters a type error.
+
+;; ;; (define (strip-has-type e)
+;; ;;   e)
+
+;; #;(define (strip-has-type e)
+;;     (match e
+;;       [`(has-type ,e ,T)
+;;        (strip-has-type e)]
+;;       [`(,(app strip-has-type e*) ...)
+;;        `(,@e*)]
+;;       [else
+;;        e]))
+
+;; (define ((check-exception name test-name error-expected) fn)
+;;   (with-handlers
+;;       ([exn:fail?
+;;         (lambda (exn)
+;;           (cond [error-expected 'expected-error]
+;;                 [else
+;;                  (displayln (format "encountered exception while testing '~a`, case ~a" name test-name))
+;;                  (raise exn)]))])
+;;     (let ([res (fn)])
+;;       (when (and (not (string? res)) (not (pair? res)) (not (eq? res #f)))
+;;         (check-false error-expected (format "in check-exception, expected exception, not ~a" res)))
+;;       res)))
+
+;; (define ((check-passes-suite name typechecker passes initial-interp) test-name)
+;;   (test-suite
+;;    test-name
+;;    (let* ([input-file-name (format "tests/~a.in" test-name)]
+;;           [result-file-name (format "tests/~a.res" test-name)]
+;;           [program-name (format "tests/~a.rkt" test-name)]
+;;           [sexp (read-program program-name)]
+;;           [type-error-expected (file-exists? (format "tests/~a.tyerr" test-name))]
+;;           [tsexp ((check-exception name test-name type-error-expected)
+;;                   (thunk (test-typecheck typechecker sexp)))]
+;;           [error-expected (file-exists? (format "tests/~a.err" test-name))]
+;;           [checker (check-exception name test-name error-expected)])
+;;      (test-case
+;;          "typecheck"
+;;        (if type-error-expected
+;;            (check-false
+;;             tsexp
+;;             (format "expected type error in compiler '~a', case ~a, but no error raised by typechecker" name test-name))
+;;            (check-not-false
+;;             tsexp
+;;             (format "expected no type error in compiler '~a', case ~a, but received error ~a" name test-name tsexp))))
+;;      (trace "type checker output:" (strip-has-type tsexp))
+;;      (unless type-error-expected
+;;        (make-test-suite
+;;         "passes"
+;;         (let ([expected-result (cond [initial-interp
+;;                                       (if (file-exists? input-file-name)
+;;                                           (with-input-from-file input-file-name
+;;                                             (lambda () (checker (thunk (initial-interp tsexp)))))
+;;                                           (checker (thunk (initial-interp tsexp))))]
+;;                                      [else
+;;                                       (if (file-exists? result-file-name)
+;;                                           (call-with-input-file result-file-name
+;;                                             (lambda (f) (string->number (read-line f))))
+;;                                           42)])])
+;;           (let loop ([passes passes]
+;;                      [p tsexp]
+;;                      [tests '()])
+;;             (trace "testing" test-name expected-result)
+;;             (cond [(null? passes) (reverse tests)]
+;;                   [else
+;;                    (define pass-info (car passes))
+;;                    (define pass-name (list-ref pass-info 0))
+;;                    (define pass      (list-ref pass-info 1))
+;;                    (define interp    (list-ref pass-info 2))
+;;                    (define type-checker
+;;                      (cond [(>= (length pass-info) 4)
+;;                             (list-ref pass-info 3)]
+;;                            [else #f]))
+;;                    (trace (string-append "running pass: " pass-name))
+;;                    (define input p)
+;;                    (define new-p^ ((check-exception name test-name #f) (thunk (pass p))))
+;;                    (trace "pass output: " (strip-has-type new-p^))
+;;                    (define new-p (cond [type-checker
+;;                                         (trace "type checking...")
+;;                                         (type-checker new-p^)]
+;;                                        [else new-p^]))
+;;                    (trace "type-check output: " (strip-has-type new-p))
+;;                    (cond [interp
+;;                           (define result
+;;                             (if (file-exists? input-file-name)
+;;                                 (with-input-from-file input-file-name
+;;                                   (lambda () (checker (thunk (interp new-p)))))
+;;                                 (checker (thunk (interp new-p)))))
+;;                           (trace "output: " result)
+;;                           (cond [expected-result
+;;                                  (loop (cdr passes) new-p
+;;                                        (cons (test-suite
+;;                                               (string-append "pass " pass-name)
+;;                                               (check-equal?
+;;                                                result expected-result
+;;                                                (format "differing results in compiler '~a' on test '~a' pass '~a', expected ~a, not ~a" name test-name pass-name expected-result result)))
+;;                                              tests))]
+;;                                 [else
+;;                                  (loop (cdr passes) new-p tests)]
+;;                                 );; cond result
+;;                           ]
+;;                          [else
+;;                           (loop (cdr passes) new-p tests)]
+;;                          ) ;; cond interp
+;;                    ]
+;;                   ))))))))
+
+
+;; ;; The interp-tests function takes a compiler name (a string), a
+;; ;; typechecker (see the comment for check-passes) a description of the
+;; ;; passes (ditto) a test family name (a string), and a list of test
+;; ;; numbers, and runs the compiler passes and the interpreters to check
+;; ;; whether the passes correct.
+;; ;;
+;; ;; This function assumes that the subdirectory "tests" has a bunch of
+;; ;; Scheme programs whose names all start with the family name,
+;; ;; followed by an underscore and then the test number, ending in
+;; ;; ".rkt". Also, for each Scheme program there is a file with the same
+;; ;; number except that it ends with ".in" that provides the input for
+;; ;; the Scheme program. If any program should not pass typechecking,
+;; ;; then there is a file with the name number (whose contents are
+;; ;; ignored) that ends in ".tyerr".
+;; ;;
+;; ;; (define (interp-tests name typechecker passes initial-interp test-family test-nums)
+;; ;;   (define checker (check-passes name typechecker passes initial-interp))
+;; ;;   (for ([test-number (in-list test-nums)])
+;; ;;     (let ([test-name (format "~a_~a" test-family test-number)])
+;; ;;       (debug "utilities/interp-test" test-name)
+;; ;;       (checker test-name))))
+
+;; (: interp-tests (All (A) [-> String (Option [-> A (Option A)])
+;;                              (Listof )
+
+;;                              Natural]))
+;; (define (interp-tests name typechecker passes initial-interp test-family test-nums)
+;;   (run-tests (interp-tests-suite name typechecker passes initial-interp test-family test-nums) (test-verbosity)))
+
+;; (define (interp-tests-suite name typechecker passes initial-interp test-family test-nums)
+;;   (define checker-suite (check-passes-suite name typechecker passes initial-interp))
+;;   (make-test-suite
+;;    "interpreter tests"
+;;    (for/list ([test-number (in-list test-nums)])
+;;      (let ([test-name (format "~a_~a" test-family test-number)])
+;;        (checker-suite test-name)))))

@@ -5,10 +5,6 @@
 
 (provide interp-Rvar-mixin interp-Rvar% interp-Rvar)
 
-;; Note to maintainers of this code:
-;;   A copy of this interpreter is in the book and should be
-;;   kept in sync with this code.
-
 
 (: interp-Rvar-mixin [-> (Class [interp-exp [-> (Env Fixnum) [-> Exp Fixnum]]]
                                 [interp-program [-> Program FinalAnswer]])

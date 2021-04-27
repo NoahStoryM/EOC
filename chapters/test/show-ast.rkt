@@ -1,7 +1,6 @@
 #lang typed/racket
 
-(require "../utilities.rkt"
-         "../1/interp-Rint.rkt")
+(require "../utilities.rkt")
 
 (show-ast (assert (call-with-values
                    (λ ()
