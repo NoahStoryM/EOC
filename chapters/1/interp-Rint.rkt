@@ -51,10 +51,7 @@
       (define/public ((interp-exp env) e)
         (match e
           [(Int n) n]
-          [(Prim 'read '())
-           (define r (read))
-           (cond [(fixnum? r) r]
-                 [else (error 'interp-exp "expected an integer" r)])]
+          [(Prim 'read '()) (read-fixnum)]
           [(Prim '- (list e))
            (define v ((interp-exp env) e))
            (fx- 0 v)]

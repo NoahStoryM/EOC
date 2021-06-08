@@ -15,10 +15,17 @@
          Type type? Op-Type op-type?
 
          ;; debug
-         debug-level at-debug-level? debug
+         debug-level at-debug-level? debug trace verbose copious
 
          ;; ;; tests
          ;; interp-tests
+
+         ;; tools
+         read-fixnum integer->fixnum
+         dim-fixnum-nullary dim-fixnum-unary dim-fixnum-binary
+         goto-label get-CFG
+         pseudo-goto-label pseudo-get-CFG
+         symbol-append any-tag
 
 
          ;; env
@@ -33,10 +40,9 @@
          (except-out (struct-out AST) make-ast)
 
 
-         ;; pseudo x86
-
          ;; x86
          X86Reg X86Reg?
+         atm->x86arg
          (struct-out X86Program) (struct-out Block)
 
          (except-out (struct-out X86Arg) make-x86arg)
@@ -45,6 +51,17 @@
          (except-out (struct-out X86Instr) make-x86instr)
          (struct-out Instr) (struct-out Callq) (struct-out Retq)
          (struct-out Pushq) (struct-out Popq) (struct-out Jmp)
+
+         ;; pseudo x86
+         (struct-out Pseudo-X86Program) (struct-out Pseudo-Block)
+
+         atm->pseudo-x86arg
+         (except-out (struct-out Pseudo-X86Arg) make-pseudo-x86arg)
+         (struct-out Pseudo-Var) (struct-out Pseudo-Imm) (struct-out Pseudo-Reg) (struct-out Pseudo-Deref)
+
+         (except-out (struct-out Pseudo-X86Instr) make-pseudo-x86instr)
+         (struct-out Pseudo-Instr) (struct-out Pseudo-Callq) (struct-out Pseudo-Retq)
+         (struct-out Pseudo-Pushq) (struct-out Pseudo-Popq) (struct-out Pseudo-Jmp)
 
 
          ;; racket
@@ -236,6 +253,30 @@
 (define-predicate dict? Dict)
 
 
+;; read
+(: read-fixnum [-> Fixnum])
+(define read-fixnum
+  (λ ()
+    (define res (read))
+    (if (fixnum? res) res (error 'read "expected a fixnum"))))
+
+(: integer->fixnum [-> Integer Fixnum])
+(define integer->fixnum
+  (λ (n)
+    (if (fixnum? n)
+        n
+        (error 'integer->fixnum "expected a fixnum"))))
+
+(: dim-fixnum-nullary [-> [-> Fixnum] [-> Fixnum * Fixnum]])
+(define dim-fixnum-nullary (λ (op) (λ args (op))))
+
+(: dim-fixnum-unary [-> [-> Fixnum Fixnum] [-> Fixnum * Fixnum]])
+(define dim-fixnum-unary (λ (op) (λ args (match args [(list n) (op n)]))))
+
+(: dim-fixnum-binary [-> [-> Fixnum Fixnum Fixnum] [-> Fixnum * Fixnum]])
+(define dim-fixnum-binary (λ (op) (λ args (match args [(list r s) (op r s)]))))
+
+
 ;; write to out
 (define-type Mode (U Boolean 0 1))
 
@@ -288,19 +329,19 @@
          (write-string "locals-types:" out)
          (newline out)
          (cond [(dict? data)
-                (write-string (make-string (indent-width) #\space) out)
                 (for ([datum data])
                   (define var  (car datum))
                   (define type (cdr datum))
+                  (write-string (make-string (indent-width) #\space) out)
                   (write-string (symbol->string var) out)
                   (write-string " : " out)
                   (recur type out)
-                  (write-string ", " out))
+                  (newline out))
                 (newline out)]
                [else
                 (recur data out)
                 (newline out)])]
-        [else
+        [_
          (write-string (symbol->string label) out)
          (write-string ":" out)
          (newline out)
@@ -344,6 +385,12 @@
 (define-type X86Reg (U 'rsp 'rbp 'rax 'rbx 'rcx 'rdx 'rsi 'rdi
                        'r8 'r9 'r10 'r11 'r12 'r13 'r14 'r15))
 (define-predicate X86Reg? X86Reg)
+
+(: atm->x86arg [-> Atm X86Arg])
+(define atm->x86arg
+  (λ (atm)
+    (match atm
+      [(Int x) (Imm x)])))
 
 (struct X86Arg AST () #:constructor-name make-x86arg #:transparent) ; #:abstract
 (struct Imm X86Arg ([value : Fixnum]) #:transparent)
@@ -461,13 +508,14 @@
 
 (struct X86Program AST
   ([info : Info]
-   [body : (Pair (Pair (U '_main 'main '_start 'start) Block) (Listof (Pair Symbol Block)))])
+   ;; [body : (Pair (Pair (U '_main 'main '_start 'start) Block) (Listof (Pair Symbol Block)))]
+   [body : (Listof (Pair Symbol Block))])
   #:transparent)
 (add-AST-format! 'X86Program
                  (ann (λ (ast out mode)
                         (match ast
                           [(X86Program info body)
-                           (write-string "x86 program:" out)
+                           ;; (write-string "x86 program:" out)
                            (newline out)
                            (print-info info out mode)
                            (write-string ".global " out)
@@ -487,7 +535,7 @@
                  (ann (λ (ast out mode)
                         (match ast
                           [(Program info body)
-                           (write-string "Racket program:" out)
+                           ;; (write-string "Racket program:" out)
                            (newline out)
                            (print-info info out mode)
                            (if (list? body)
@@ -540,6 +588,157 @@
                                    (newline-and-indent out col)))]))
                       [-> AST Output-Port Mode Void]))
 
+;; Pseudo x86 language:
+(: atm->pseudo-x86arg [-> Atm Pseudo-X86Arg])
+(define atm->pseudo-x86arg
+  (λ (atm)
+    (match atm
+      [(Int x) (Pseudo-Imm x)]
+      [(Var x) (Pseudo-Var x)])))
+
+(struct Pseudo-X86Arg AST () #:constructor-name make-pseudo-x86arg #:transparent) ; #:abstract
+(struct Pseudo-Var Pseudo-X86Arg ([value : Symbol]) #:transparent)
+(add-AST-format! 'Pseudo-Var
+                 (ann (λ (ast out mode)
+                        (match ast [(Pseudo-Var n) (write-string "@" out) (write n out)]))
+                      [-> AST Output-Port Mode Void]))
+(struct Pseudo-Imm Pseudo-X86Arg ([value : Fixnum]) #:transparent)
+(add-AST-format! 'Pseudo-Imm
+                 (ann (λ (ast out mode)
+                        (match ast [(Pseudo-Imm n) (write-string "$" out) (write n out)]))
+                      [-> AST Output-Port Mode Void]))
+
+(struct Pseudo-Reg Pseudo-X86Arg ([name : X86Reg]) #:transparent)
+(add-AST-format! 'Pseudo-Reg
+                 (ann (λ (ast out mode) (match ast [(Pseudo-Reg r) (write-string "%" out) (write r out)]))
+                      [-> AST Output-Port Mode Void]))
+
+(struct Pseudo-Deref Pseudo-X86Arg ([reg : X86Reg] [offset : Fixnum]) #:transparent)
+(add-AST-format! 'Pseudo-Deref
+                 (ann (λ (ast out mode)
+                        (match ast
+                          [(Pseudo-Deref reg offset)
+                           (void
+                            (write offset out)
+                            (write-string "(" out)
+                            (write-string "%" out)
+                            (write reg out)
+                            (write-string ")" out))]))
+                      [-> AST Output-Port Mode Void]))
+
+
+(struct Pseudo-X86Instr AST () #:constructor-name make-pseudo-x86instr #:transparent) ; #:abstract
+(struct Pseudo-Instr Pseudo-X86Instr ([name : Symbol] [arg* : (Listof Pseudo-X86Arg)]) #:transparent)
+(add-AST-format! 'Pseudo-Instr
+                 (ann (λ (ast out mode)
+                        (match ast
+                          [(Pseudo-Instr name arg*)
+                           (let-values ([(line col pos) (port-next-location out)])
+                             (write name out)
+                             (for ([arg arg*]
+                                   [i (in-naturals)])
+                               (unless (zero? i) (write-string "," out))
+                               (write-string " " out)
+                               (write-ast arg out))
+                             (newline-and-indent out col))]))
+                      [-> AST Output-Port Mode Void]))
+
+(struct Pseudo-Callq Pseudo-X86Instr ([target : Symbol] [arity : Fixnum]) #:transparent)
+(add-AST-format! 'Pseudo-Callq
+                 (ann (λ (ast out mode)
+                        (match ast
+                          [(Pseudo-Callq target arity)
+                           (let-values ([(line col pos) (port-next-location out)])
+                             (void (write-string "callq" out)
+                                   (write-string " " out)
+                                   (write target out)
+                                   (newline-and-indent out col)))]))
+                      [-> AST Output-Port Mode Void]))
+
+(struct Pseudo-Retq Pseudo-X86Instr () #:transparent)
+(add-AST-format! 'Pseudo-Retq
+                 (ann (λ (ast out mode)
+                        (match ast
+                          [(Pseudo-Retq)
+                           (let-values ([(line col pos) (port-next-location out)])
+                             (void (write-string "retq" out)
+                                   (newline-and-indent out col)))]))
+                      [-> AST Output-Port Mode Void]))
+
+(struct Pseudo-Pushq Pseudo-X86Instr ([arg : Pseudo-X86Arg]) #:transparent)
+(add-AST-format! 'Pseudo-Pushq
+                 (ann (λ (ast out mode)
+                        (match ast
+                          [(Pseudo-Pushq arg)
+                           (let-values ([(line col pos) (port-next-location out)])
+                             (void (write-string "pushq" out)
+                                   (write-string " " out)
+                                   (write-ast arg out)
+                                   (newline-and-indent out col)))]))
+                      [-> AST Output-Port Mode Void]))
+
+(struct Pseudo-Popq Pseudo-X86Instr ([arg : Pseudo-X86Arg]) #:transparent)
+(add-AST-format! 'Pseudo-Popq
+                 (ann (λ (ast out mode)
+                        (match ast
+                          [(Pseudo-Popq arg)
+                           (let-values ([(line col pos) (port-next-location out)])
+                             (void (write-string "popq" out)
+                                   (write-string " " out)
+                                   (write-ast arg out)
+                                   (newline-and-indent out col)))]))
+                      [-> AST Output-Port Mode Void]))
+
+(struct Pseudo-Jmp Pseudo-X86Instr ([target : Symbol]) #:transparent)
+(add-AST-format! 'Pseudo-Jmp
+                 (ann (λ (ast out mode)
+                        (match ast
+                          [(Pseudo-Jmp target)
+                           (let-values ([(line col pos) (port-next-location out)])
+                             (void (write-string "jmp" out)
+                                   (write-string " " out)
+                                   (write target out)
+                                   (newline-and-indent out col)))]))
+                      [-> AST Output-Port Mode Void]))
+
+
+(struct Pseudo-Block AST ([info : Info] [instr* : (Listof Pseudo-X86Instr)]))
+(add-AST-format! 'Pseudo-Block
+                 (ann (λ (ast out mode)
+                        (match ast
+                          [(Pseudo-Block info instr*)
+                           (print-info info out mode)
+                           (write-string (make-string (indent-width) #\space) out)
+                           (for ([instr instr*])
+                             (write-ast instr out))
+                           (newline out)]))
+                      [-> AST Output-Port Mode Void]))
+
+
+(struct Pseudo-X86Program AST
+  ([info : Info]
+   ;; [body : (Pair (Pair (U '_main 'main '_start 'start) Pseudo-Block) (Listof (Pair Symbol Pseudo-Block)))]
+   [body : (Listof (Pair Symbol Pseudo-Block))])
+  #:transparent)
+(add-AST-format! 'Pseudo-X86Program
+                 (ann (λ (ast out mode)
+                        (match ast
+                          [(Pseudo-X86Program info body)
+                           ;; (write-string "pseudo x86 program:" out)
+                           (newline out)
+
+                           (write-string ".global " out)
+                           (writeln (caar body) out)
+
+                           (print-info info out mode)
+
+                           (for ([seg body])
+                             (write (car seg) out)
+                             (write-string ":\n" out)
+                             (write-ast (cdr seg) out))]))
+                      [-> AST Output-Port Mode Void]))
+
+
 ;; C Language:
 (struct CProgram AST
   ([info : Info]
@@ -550,8 +749,9 @@
                  (ann (λ (ast out mode)
                         (match ast
                           [(CProgram info body)
-                           (write-string "C program:" out)
+                           ;; (write-string "C program:" out)
                            (newline out)
+
                            (print-info info out mode)
 
                            (for ([seg body])
@@ -566,7 +766,7 @@
                       [-> AST Output-Port Mode Void]))
 
 (struct Tail AST () #:constructor-name make-tail #:transparent) ; abstract
-(struct Return Tail ([exp : Exp]) #:transparent)
+(struct Return Tail ([exp : (U Atm Prim)]) #:transparent)
 (add-AST-format! 'Return
                  (ann (λ (ast out mode)
                         (match ast
@@ -767,3 +967,41 @@
 ;;    (for/list ([test-number (in-list test-nums)])
 ;;      (let ([test-name (format "~a_~a" test-family test-number)])
 ;;        (checker-suite test-name)))))
+
+
+;; This parameter (dynamically scoped thingy) is used for goto.
+(: pseudo-get-CFG (Parameter (Listof (Pair Symbol Pseudo-Block))))
+(define pseudo-get-CFG (make-parameter '()))
+
+(: pseudo-goto-label [-> Symbol (Option Pseudo-Block)])
+(define (pseudo-goto-label label)
+  (: lb (Option (Pair Symbol Pseudo-Block)))
+  (define lb (assq label (pseudo-get-CFG)))
+  (if (false? lb) #f (cdr lb)))
+
+(: get-CFG (Parameter (Listof (Pair Symbol Block))))
+(define get-CFG (make-parameter '()))
+
+(: goto-label [-> Symbol Block])
+(define (goto-label label)
+  (: lb (Option (Pair Symbol Block)))
+  (define lb (assq label (get-CFG)))
+  (if (false? lb)
+      (error "There isn't a block label called ~a!" label)
+      (cdr lb)))
+
+(: symbol-append [-> Symbol Symbol Symbol])
+(define (symbol-append s1 s2)
+  (string->symbol (string-append (symbol->string s1) (symbol->string s2))))
+
+(: any-tag [-> Any Fixnum])
+(define (any-tag ty)
+  (match ty
+    ['Integer 1]		;; 001
+    ['Boolean 4]		;; 100
+    ['Void 5]                   ;; 101
+    [`(Vector ,ts ...) 2]	;; 010
+    [`(PVector ,ts ...) 2]
+    [`(,ts ... -> ,rt) 3]	;; 011
+    [else (error "in any-tag, unrecognized type" ty)]
+    ))

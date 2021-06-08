@@ -1,6 +1,6 @@
 #lang typed/racket
 
-(require "../../utilities.rkt" "type-check-Rint.rkt")
+(require "../utilities.rkt" "type-check-Rint.rkt")
 
 (provide type-check-Rvar-mixin type-check-Rvar% type-check-Rvar)
 

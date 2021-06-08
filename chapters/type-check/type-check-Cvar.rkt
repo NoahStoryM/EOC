@@ -1,6 +1,6 @@
 #lang typed/racket
 
-(require "../../utilities.rkt" "type-check-Rvar.rkt")
+(require "../utilities.rkt" "type-check-Rvar.rkt")
 
 (provide type-check-Cvar-mixin type-check-Cvar% type-check-Cvar)
 
@@ -87,6 +87,7 @@
 (define type-check-Cvar% (type-check-Cvar-mixin type-check-Rvar%))
 
 
-(: type-check-Cvar [-> CProgram CProgram])
+(: type-check-Cvar (case-> [-> CProgram CProgram]
+                           [-> Program Program]))
 (define (type-check-Cvar p)
   (send (new type-check-Cvar%) type-check-program p))

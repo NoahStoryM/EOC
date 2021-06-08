@@ -1,6 +1,7 @@
 #lang typed/racket
 
-(require "../../utilities.rkt")
+(require "../utilities.rkt")
+(require racket/fixnum)
 
 (provide type-check-Rint-mixin type-check-Rint% type-check-Rint)
 
@@ -72,7 +73,7 @@
            (define-values (body^ Tb) ((type-check-exp ((inst empty-env Type))) body))
            (check-type-equal? Tb 'Integer body)
            (Program info body^)]
-          [else (error 'type-check-Rint "couldn't match ~a" e)])))))
+          [_ (error 'type-check-Rint "couldn't match ~a" e)])))))
 
 
 (: type-check-Rint% (Class [operator-types [-> (Env Type)]]

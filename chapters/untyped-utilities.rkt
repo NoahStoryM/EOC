@@ -49,11 +49,12 @@ Added structs for AST nodes.
 
 (require (except-in "utilities.rkt"
                     debug-level at-debug-level? debug
-                    ))
+                    trace verbose copious))
 
 
-(provide interp-tests
-         read-fixnum read-program
+(provide interp-tests compiler-tests
+         ;; read-fixnum
+         read-program
          parse-program
          )
 
@@ -103,26 +104,26 @@ Added structs for AST nodes.
             [lno (syntax-line stx)])
        #`(begin
            (printf "~a @ ~a:~a\n" label #,src #,lno)
-        (begin
-          (printf "~a:\n" 'value)
-          (pretty-print value)
-          #;(if (string? value)
-              (display value)
-              (pretty-display value))
-          (newline))
-        ...
-        (newline)))]))
+           (begin
+             (printf "~a:\n" 'value)
+             (pretty-print value)
+             #;(if (string? value)
+                   (display value)
+                   (pretty-display value))
+             (newline))
+           ...
+           (newline)))]))
 
 ;; This series of macros are used for debuging purposes
 ;; and print out
 (define-syntax-rule (define-debug-level name level)
-    (...
-     (define-syntax (name stx)
-      (syntax-case stx ()
-        [(_ label value ...)
-         #`(when (at-debug-level? level)
-             #,(syntax/loc stx
-                 (print-label-and-values label value ...)))]))))
+  (...
+   (define-syntax (name stx)
+     (syntax-case stx ()
+       [(_ label value ...)
+        #`(when (at-debug-level? level)
+            #,(syntax/loc stx
+                (print-label-and-values label value ...)))]))))
 
 ;; Print out debugging info in a somewhat organized manner
 ;; (debug "foo" (car '(1 2)) 'foo) should print
@@ -243,22 +244,22 @@ Added structs for AST nodes.
   e)
 
 #;(define (strip-has-type e)
-  (match e
-    [`(has-type ,e ,T)
-     (strip-has-type e)]
-    [`(,(app strip-has-type e*) ...)
-      `(,@e*)]
-    [else
-     e]))
+    (match e
+      [`(has-type ,e ,T)
+       (strip-has-type e)]
+      [`(,(app strip-has-type e*) ...)
+       `(,@e*)]
+      [else
+       e]))
 
 (define ((check-exception name test-name error-expected) fn)
   (with-handlers
-    ([exn:fail?
-      (lambda (exn)
-        (cond [error-expected 'expected-error]
-              [else
-               (displayln (format "encountered exception while testing `~a`, case ~a" name test-name))
-               (raise exn)]))])
+      ([exn:fail?
+        (lambda (exn)
+          (cond [error-expected 'expected-error]
+                [else
+                 (displayln (format "encountered exception while testing `~a`, case ~a" name test-name))
+                 (raise exn)]))])
     (let ([res (fn)])
       (when (and (not (string? res)) (not (pair? res)) (not (eq? res #f)))
         (check-false error-expected (format "in check-exception, expected exception, not ~a" res)))
@@ -277,7 +278,7 @@ Added structs for AST nodes.
           [error-expected (file-exists? (format "tests/~a.err" test-name))]
           [checker (check-exception name test-name error-expected)])
      (test-case
-       "typecheck"
+         "typecheck"
        (if type-error-expected
            (check-false
             tsexp
@@ -299,53 +300,53 @@ Added structs for AST nodes.
                                           (call-with-input-file result-file-name
                                             (lambda (f) (string->number (read-line f))))
                                           42)])])
-        (let loop ([passes passes]
-                   [p tsexp]
-                   [tests '()])
-          (trace "testing" test-name expected-result)
-          (cond [(null? passes) (reverse tests)]
-                [else
-                 (define pass-info (car passes))
-                 (define pass-name (list-ref pass-info 0))
-                 (define pass      (list-ref pass-info 1))
-                 (define interp    (list-ref pass-info 2))
-                 (define type-checker
-                   (cond [(>= (length pass-info) 4)
-                          (list-ref pass-info 3)]
-                         [else #f]))
-                 (trace (string-append "running pass: " pass-name))
-                 (define input p)
-                 (define new-p^ ((check-exception name test-name #f) (thunk (pass p))))
-                 (trace "pass output: " (strip-has-type new-p^))
-                 (define new-p (cond [type-checker
-                                      (trace "type checking...")
-                                      (type-checker new-p^)]
-                                     [else new-p^]))
-                 (trace "type-check output: " (strip-has-type new-p))
-                 (cond [interp
-                        (define result
-                          (if (file-exists? input-file-name)
-                              (with-input-from-file input-file-name
-                                (lambda () (checker (thunk (interp new-p)))))
-                              (checker (thunk (interp new-p)))))
-                        (trace "output: " result)
-                        (cond [expected-result
-                               (loop (cdr passes) new-p
-                                     (cons (test-suite
-                                            (string-append "pass " pass-name)
-                                            (check-equal?
-                                             result expected-result
-                                             (format "differing results in compiler '~a' on test '~a' pass '~a', expected ~a, not ~a" name test-name pass-name expected-result result)))
-                                           tests))]
-                              [else
-                               (loop (cdr passes) new-p tests)]
-                              );; cond result
+          (let loop ([passes passes]
+                     [p tsexp]
+                     [tests '()])
+            (trace "testing" test-name expected-result)
+            (cond [(null? passes) (reverse tests)]
+                  [else
+                   (define pass-info (car passes))
+                   (define pass-name (list-ref pass-info 0))
+                   (define pass      (list-ref pass-info 1))
+                   (define interp    (list-ref pass-info 2))
+                   (define type-checker
+                     (cond [(>= (length pass-info) 4)
+                            (list-ref pass-info 3)]
+                           [else #f]))
+                   (trace (string-append "running pass: " pass-name))
+                   (define input p)
+                   (define new-p^ ((check-exception name test-name #f) (thunk (pass p))))
+                   (trace "pass output: " (strip-has-type new-p^))
+                   (define new-p (cond [type-checker
+                                        (trace "type checking...")
+                                        (type-checker new-p^)]
+                                       [else new-p^]))
+                   (trace "type-check output: " (strip-has-type new-p))
+                   (cond [interp
+                          (define result
+                            (if (file-exists? input-file-name)
+                                (with-input-from-file input-file-name
+                                  (lambda () (checker (thunk (interp new-p)))))
+                                (checker (thunk (interp new-p)))))
+                          (trace "output: " result)
+                          (cond [expected-result
+                                 (loop (cdr passes) new-p
+                                       (cons (test-suite
+                                              (string-append "pass " pass-name)
+                                              (check-equal?
+                                               result expected-result
+                                               (format "differing results in compiler '~a' on test '~a' pass '~a', expected ~a, not ~a" name test-name pass-name expected-result result)))
+                                             tests))]
+                                [else
+                                 (loop (cdr passes) new-p tests)]
+                                );; cond result
                           ]
-                       [else
-                        (loop (cdr passes) new-p tests)]
-                       ) ;; cond interp
-                 ]
-                ))))))))
+                         [else
+                          (loop (cdr passes) new-p tests)]
+                         ) ;; cond interp
+                   ]
+                  ))))))))
 
 (define (compile passes)
   (let ([prog-file-name (vector-ref (current-command-line-arguments) 0)])
@@ -493,12 +494,12 @@ Added structs for AST nodes.
   (match (process command)
     [`(,in1 ,out ,_ ,inErr ,control-fun)
      (let* ([timeout 3.0]
-      [res (wait-or-timeout control-fun timeout)]
-      [result (cond [(symbol=? res 'timed-out)
+            [res (wait-or-timeout control-fun timeout)]
+            [result (cond [(symbol=? res 'timed-out)
                            `(error timed-out ,timeout)]
-        [(symbol=? res 'done-error)
+                          [(symbol=? res 'done-error)
                            `(error done-error ,(control-fun 'exit-code))]
-        [else `(result done ,(read-line in1))])])
+                          [else `(result done ,(read-line in1))])])
        (close-input-port in1)
        (close-input-port inErr)
        (close-output-port out)
@@ -516,29 +517,31 @@ Added structs for AST nodes.
           test-name
           (if type-error-expected
               (test-case "typecheck" (check-false typechecks "Expected expression to fail typechecking"))
-        (if (not typechecks) (fail "Expected expression to typecheck")
-      (test-case "code generation"
-           (let ([gcc-output (system (format "gcc -g -march=x86-64 -std=c99 runtime.o tests/~a.s -o tests/~a.out" test-name test-name))])
-             (if (not gcc-output) (fail "Failed during assembly")
-           (let ([input (if (file-exists? (format "tests/~a.in" test-name))
-                (format " < tests/~a.in" test-name)
-                "")]
-           [output (if (file-exists? (format "tests/~a.res" test-name))
-                 (call-with-input-file
-               (format "tests/~a.res" test-name)
-                   (lambda (f) (read-line f)))
-                 "42")]
-           [error-expected (file-exists? (format "tests/~a.err" test-name))])
-             (let* ([command (format "./tests/~a.out ~a" test-name input)]
-              [result (get-value-or-fail command output)])
-               (check-not-false gcc-output "Unable to run program, gcc reported assembly failure")
-               (check-not-equal? (cadr result) 'timed-out (format "x86 execution timed out after ~a seconds" (caddr result)))
-               (cond [error-expected
-                (check-equal? (cadr result) 'done-error (format "expected error, not: ~a" (caddr result)))
-                (check-equal? (caddr result) 255 (format "expected error, not: ~a" (caddr result)))]
-               [else
-                (check-not-eq? (cadr result) eof "x86 execution did not produce output")
-                (check result-check (caddr result) output "Mismatched output from x86 execution")]))))))))))))))
+              (if (not typechecks)
+                  (fail "Expected expression to typecheck")
+                  (test-case "code generation"
+                    (let ([gcc-output (system (format "gcc -g -march=x86-64 -std=c99 runtime.o tests/~a.s -o tests/~a.out" test-name test-name))])
+                      (if (not gcc-output)
+                          (fail "Failed during assembly")
+                          (let ([input (if (file-exists? (format "tests/~a.in" test-name))
+                                           (format " < tests/~a.in" test-name)
+                                           "")]
+                                [output (if (file-exists? (format "tests/~a.res" test-name))
+                                            (call-with-input-file
+                                              (format "tests/~a.res" test-name)
+                                              (lambda (f) (read-line f)))
+                                            "42")]
+                                [error-expected (file-exists? (format "tests/~a.err" test-name))])
+                            (let* ([command (format "./tests/~a.out ~a" test-name input)]
+                                   [result (get-value-or-fail command output)])
+                              (check-not-false gcc-output "Unable to run program, gcc reported assembly failure")
+                              (check-not-equal? (cadr result) 'timed-out (format "x86 execution timed out after ~a seconds" (caddr result)))
+                              (cond [error-expected
+                                     (check-equal? (cadr result) 'done-error (format "expected error, not: ~a" (caddr result)))
+                                     (check-equal? (caddr result) 255 (format "expected error, not: ~a" (caddr result)))]
+                                    [else
+                                     (check-not-eq? (cadr result) eof "x86 execution did not produce output")
+                                     (check result-check (caddr result) output "Mismatched output from x86 execution")]))))))))))))))
 
 (define (compiler-tests name typechecker passes test-family test-nums)
   (run-tests (compiler-tests-suite name typechecker passes test-family test-nums) (test-verbosity)))
@@ -563,8 +566,8 @@ Added structs for AST nodes.
   (define (handler e)
     (copious "test-typecheck" tcer exp e)
     (when (at-debug-level? 1)
-    (display (exn-message e))
-    (newline)(newline))
+      (display (exn-message e))
+      (newline)(newline))
     #f)
   (if (eq? tcer #f)
       exp
@@ -580,11 +583,11 @@ Added structs for AST nodes.
 (define assert
   (lambda (msg b)
     (if (not b)
-  (begin
-    (display "ERROR: ")
-    (display msg)
-    (newline))
-  (void))))
+        (begin
+          (display "ERROR: ")
+          (display msg)
+          (newline))
+        (void))))
 
 ;; (case-> (symbol . -> . symbol) (string . -> . string))
 (define (racket-id->c-id x)

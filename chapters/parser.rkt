@@ -38,6 +38,7 @@
 
     (parameterize ([port-count-lines-enabled #t])
       (write-ast exp out)
+      (close-output-port out)
       (assert (read in) s-exp?))))
 
 (: unparse [-> Program S-Exp])

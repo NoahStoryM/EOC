@@ -14,7 +14,7 @@
                                 [interp-tail [-> (Env Fixnum) [-> Tail Fixnum]]]
 
                                 [interp-exp [-> (Env Fixnum) [-> Exp Fixnum]]]
-                                [interp-program [-> Program FinalAnswer]])])
+                                [interp-program [-> CProgram FinalAnswer]])])
 (define interp-Cvar-mixin
   (λ (super%)
     (class super%
@@ -39,21 +39,21 @@
              (define new-env ((interp-stmt env) s))
              ((interp-tail new-env) t2)])))
 
-      (: interp-program [-> Program FinalAnswer])
+      (: interp-program [-> CProgram FinalAnswer])
       (define/override (interp-program p)
         (match p
           [(CProgram _ `((start . ,t1) (,ls . ,ts) ...))
-           ((interp-tail '()) t1)])))))
+           ((interp-tail ((inst empty-env Fixnum))) t1)])))))
 
 
 (: interp-Cvar% (Class [interp-stmt [-> (Env Fixnum) [-> Assign (Env Fixnum)]]]
                        [interp-tail [-> (Env Fixnum) [-> Tail Fixnum]]]
 
                        [interp-exp [-> (Env Fixnum) [-> Exp Fixnum]]]
-                       [interp-program [-> Program FinalAnswer]]))
+                       [interp-program [-> CProgram FinalAnswer]]))
 (define interp-Cvar% (interp-Cvar-mixin interp-Rvar%))
 
 
-(: interp-Cvar [-> Program FinalAnswer])
+(: interp-Cvar [-> CProgram FinalAnswer])
 (define (interp-Cvar p)
   (send (new interp-Cvar%) interp-program p))
