@@ -1,16 +1,15 @@
 #lang nanopass
 
+(require (rename-in racket/base
+                    [list?   info?]
+                    [fixnum? int?]))
+
 (provide Rint parse-Rint unparse-Rint
          Rvar parse-Rvar unparse-Rvar)
 
 
 ;; Rint
-(define int? (procedure-rename fixnum? 'int?))
-(define prim?
-  (λ (arg)
-    (case arg
-      [(+ - read) #t]
-      [else #f])))
+(define prim? (λ (arg) (memq arg '(+ - read))))
 
 (define-language Rint
   (entry Exp)

@@ -1,5 +1,9 @@
 #lang nanopass
 
+(require (rename-in racket/base
+                    [list?   info?]
+                    [fixnum? int?]))
+
 (provide Rint parse-Rint unparse-Rint
          Rvar parse-Rvar unparse-Rvar
          Cvar parse-Cvar unparse-Cvar
@@ -7,31 +11,28 @@
 
 
 ;; Rint
-(define _info? (procedure-rename list? '_info?))
-(define _int? (procedure-rename fixnum? '_int?))
+(define list? (λ (arg) (eq? arg 'list)))
 
-(define _list? (λ (arg) (eq? arg 'list)))
+(define Int?  (λ (arg) (eq? arg 'Int)))
+(define Prim? (λ (arg) (eq? arg 'Prim)))
 
-(define _Int?     (λ (arg) (eq? arg 'Int)))
-(define _Prim?    (λ (arg) (eq? arg 'Prim)))
-
-(define _read? (λ (arg) (equal? arg ''read)))
-(define _-?    (λ (arg) (equal? arg ''-)))
-(define _+?    (λ (arg) (equal? arg ''+)))
+(define read? (λ (arg) (equal? arg ''read)))
+(define -?    (λ (arg) (equal? arg ''-)))
+(define +?    (λ (arg) (equal? arg ''+)))
 
 (define-language Rint
   (entry LP)
   (terminals
-   (_info (info_))
-   (_int  (int_))
-   (_list (list_))
+   (info (info_))
+   (int  (int_))
+   (list (list_))
 
-   (_Int  (Int_))
-   (_Prim (Prim_))
+   (Int  (Int_))
+   (Prim (Prim_))
 
-   (_read (read_))
-   (_- (-_))
-   (_+ (+_)))
+   (read (read_))
+   (- (-_))
+   (+ (+_)))
 
   (Exp (exp body)
        (Int int_)
@@ -45,21 +46,21 @@
 
 ;; Rvar
 (define prim? (λ (arg) (memq arg '(+ - read))))
-(define _var?
+(define var?
   (λ (arg)
     (match arg
       [`(quote ,(? (conjoin (negate prim?) symbol?))) #t]
       [_ #f])))
-(define _Var? (λ (arg) (eq? arg 'Var)))
-(define _Let? (λ (arg) (eq? arg 'Let)))
+(define Var? (λ (arg) (eq? arg 'Var)))
+(define Let? (λ (arg) (eq? arg 'Let)))
 
 (define-language Rvar
   (extends Rint)
   (entry LP)
   (terminals
-   (+ (_var (var_))
-      (_Var (Var_))
-      (_Let (Let_))))
+   (+ (var (var_))
+      (Var (Var_))
+      (Let (Let_))))
   (Exp (exp body)
        (+ (Let var_ exp body)
           (Var var_))))
@@ -67,7 +68,7 @@
 
 
 ;; Cvar
-(define _label?
+(define label?
   (λ (arg)
     (match arg
       [`(quote ,(? symbol?)) #t]
@@ -77,7 +78,7 @@
   (extends Rvar)
   (entry LP)
 
-  (terminals (+ (_label (label_))))
+  (terminals (+ (label (label_))))
 
   (Atm (atm)
        (+ (Int int_)
@@ -104,51 +105,51 @@
 
 
 ;; X86Int
-(define _reg?
+(define reg?
   (λ (arg)
     (member arg '('rsp 'rbp 'rax 'rbx 'rcx 'rdx 'rsi 'rdi
                        'r8 'r9 'r10 'r11 'r12 'r13 'r14 'r15))))
 
-(define _Imm?   (λ (arg) (eq? arg 'Imm)))
-(define _Reg?   (λ (arg) (eq? arg 'Reg)))
-(define _Deref? (λ (arg) (eq? arg 'Deref)))
-(define _Instr? (λ (arg) (eq? arg 'Instr)))
+(define Imm?   (λ (arg) (eq? arg 'Imm)))
+(define Reg?   (λ (arg) (eq? arg 'Reg)))
+(define Deref? (λ (arg) (eq? arg 'Deref)))
+(define Instr? (λ (arg) (eq? arg 'Instr)))
 
-(define _nullary?   (λ (arg) (member arg '())))
-(define _unary?  (λ (arg) (member arg '('negq))))
-(define _binary? (λ (arg) (member arg '('addq 'subq 'movq))))
-(define _n-ary?  (λ (arg) (member arg '())))
+(define nullary?   (λ (arg) (member arg '())))
+(define unary?  (λ (arg) (member arg '('negq))))
+(define binary? (λ (arg) (member arg '('addq 'subq 'movq))))
+(define n-ary?  (λ (arg) (member arg '())))
 
-(define _Callq? (λ (arg) (eq? arg 'Callq)))
-(define _Retq?  (λ (arg) (eq? arg 'Retq)))
-(define _Pushq? (λ (arg) (eq? arg 'Pushq)))
-(define _Popq?  (λ (arg) (eq? arg 'Popq)))
-(define _Jmp?   (λ (arg) (eq? arg 'Jmp)))
+(define Callq? (λ (arg) (eq? arg 'Callq)))
+(define Retq?  (λ (arg) (eq? arg 'Retq)))
+(define Pushq? (λ (arg) (eq? arg 'Pushq)))
+(define Popq?  (λ (arg) (eq? arg 'Popq)))
+(define Jmp?   (λ (arg) (eq? arg 'Jmp)))
 
 (define-language X86Int
   (entry LP)
   (terminals
-   (_info (info_))
-   (_int  (int_))
-   (_reg  (reg_))
-   (_list (list_))
-   (_label (label_))
+   (info (info_))
+   (int  (int_))
+   (reg  (reg_))
+   (list (list_))
+   (label (label_))
 
-   (_Imm   (Imm_))
-   (_Reg   (Reg_))
-   (_Deref (Deref_))
+   (Imm   (Imm_))
+   (Reg   (Reg_))
+   (Deref (Deref_))
 
-   (_Instr   (Instr_))
-   (_nullary (nullary_))
-   (_unary   (unary_))
-   (_binary  (binary_))
-   (_n-ary   (n-ary_))
+   (Instr   (Instr_))
+   (nullary (nullary_))
+   (unary   (unary_))
+   (binary  (binary_))
+   (n-ary   (n-ary_))
 
-   (_Callq (Callq_))
-   (_Retq  (Retq_))
-   (_Pushq (Pushq_))
-   (_Popq  (Popq_))
-   (_Jmp   (Jmp_)))
+   (Callq (Callq_))
+   (Retq  (Retq_))
+   (Pushq (Pushq_))
+   (Popq  (Popq_))
+   (Jmp   (Jmp_)))
 
   (X86Arg (arg)
           (Imm int_)
